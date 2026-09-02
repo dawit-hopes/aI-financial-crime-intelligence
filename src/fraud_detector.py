@@ -4,11 +4,12 @@ from .features import FraudFeatureBuilder
 from .model import FraudModel
 from .schemas import FraudPrediction, FraudReason, TransactionInput
 
+DEFAULT_THRESHOLD = 0.92
 
 class FraudDetector:
     def __init__(
         self,
-        threshold: float = 0.5,
+        threshold: float = DEFAULT_THRESHOLD,
     ):
         self.feature_builder = FraudFeatureBuilder()
         self.model = FraudModel()
@@ -44,7 +45,7 @@ class FraudDetector:
         self,
         probability: float,
     ) -> Literal["LOW", "MEDIUM", "HIGH"]:
-        if probability >= 0.8:
+        if probability >= 0.92:
             return "HIGH"
 
         if probability >= 0.5:
