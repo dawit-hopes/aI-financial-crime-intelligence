@@ -1,37 +1,51 @@
-from typing import Literal
+import shap
 
+from .explainability import Explainability
 from .features import FraudFeatureBuilder
 from .model import FraudModel
 from .schemas import FraudPrediction, FraudReason, TransactionInput
 
 DEFAULT_THRESHOLD = 0.92
 
+
 class FraudDetector:
-    def __init__(
-        self,
-        threshold: float = DEFAULT_THRESHOLD,
-    ):
+    def __init__(self, threshold=DEFAULT_THRESHOLD):
         self.feature_builder = FraudFeatureBuilder()
         self.model = FraudModel()
         self.threshold = threshold
 
-    def predict(self, transaction: TransactionInput) -> FraudPrediction:
-        """Run fraud detection on a single transaction."""
+        # Create once when the service starts.
+        self.explainer = shap.TreeExplainer(self.model.model)
 
-        # 1. Build model features
+        self.explainability = Explainability(
+            model=self.model.model,
+            explainer=self.explainer,
+            threshold=self.threshold,
+        )
+
+    def predict(self, transaction: TransactionInput):
         features = self.feature_builder.build(transaction)
 
-        # 2. Get fraud probability
         probability = self.model.predict_proba(features)
 
-        # 3. Determine fraud classification
         is_fraud = probability >= self.threshold
 
-        # 4. Determine risk level
         risk_level = self._get_risk_level(probability)
 
-        # 5. Generate explanation
-        reasons = self._generate_reasons(features, probability)
+        explanation = self.explainability.explain_transaction(
+            features=features,
+            top_n=5,
+        )
+
+        reasons = [
+            FraudReason(
+                feature=reason["feature"],
+                contribution=reason["contribution"],
+                direction=reason["direction"],
+                description=reason["description"],
+            )
+            for reason in explanation["reasons"]
+        ]
 
         return FraudPrediction(
             is_fraud=is_fraud,
@@ -41,10 +55,7 @@ class FraudDetector:
             reasons=reasons,
         )
 
-    def _get_risk_level(
-        self,
-        probability: float,
-    ) -> Literal["LOW", "MEDIUM", "HIGH"]:
+    def _get_risk_level(self, probability):
         if probability >= 0.92:
             return "HIGH"
 
@@ -52,67 +63,3 @@ class FraudDetector:
             return "MEDIUM"
 
         return "LOW"
-
-    def _generate_reasons(
-        self,
-        features: dict[str, float],
-        probability: float,
-    ) -> list[FraudReason]:
-        reasons = []
-
-        if probability < 0.5:
-            return reasons
-
-        if features["amount"] > 100000:
-            reasons.append(
-                FraudReason(
-                    feature="amount",
-                    impact=0.0,
-                    description="Transaction amount is unusually large.",
-                )
-            )
-
-        if features["type_TRANSFER"] == 1:
-            reasons.append(
-                FraudReason(
-                    feature="type_TRANSFER",
-                    impact=0.0,
-                    description="Transaction is a transfer.",
-                )
-            )
-
-        if features["orig_previous_transaction_count"] == 0:
-            reasons.append(
-                FraudReason(
-                    feature="orig_previous_transaction_count",
-                    impact=0.0,
-                    description="No previous transaction history is available for the origin account.",
-                )
-            )
-
-        if (
-            features["orig_previous_transaction_count"] > 0
-            and features["orig_previous_avg_amount"] > 0
-            and features["amount"] > features["orig_previous_avg_amount"] * 5
-        ):
-            reasons.append(
-                FraudReason(
-                    feature="orig_previous_avg_amount",
-                    impact=0.0,
-                    description="Transaction amount is significantly higher than the origin account's historical average.",
-                )
-            )
-
-        if (
-            features["dest_previous_transaction_count"] == 0
-            and features["type_TRANSFER"] == 1
-        ):
-            reasons.append(
-                FraudReason(
-                    feature="dest_previous_transaction_count",
-                    impact=0.0,
-                    description="Transfer is being sent to a destination account with no previous transaction history.",
-                )
-            )
-
-        return reasons

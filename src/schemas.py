@@ -4,17 +4,19 @@ from typing import Literal
 
 from pydantic import BaseModel, Field
 
+TransactionType = Literal[
+    "CASH_IN",
+    "CASH_OUT",
+    "DEBIT",
+    "PAYMENT",
+    "TRANSFER",
+]
+
 
 class TransactionInput(BaseModel):
     # Current transaction
     step: int = Field(..., ge=0)
-    type: Literal[
-        "CASH_IN",
-        "CASH_OUT",
-        "DEBIT",
-        "PAYMENT",
-        "TRANSFER",
-    ]
+    type: TransactionType
     amount: float = Field(..., ge=0)
     oldbalanceOrg: float = Field(..., ge=0)
     oldbalanceDest: float = Field(..., ge=0)
@@ -32,7 +34,8 @@ class TransactionInput(BaseModel):
 
 class FraudReason(BaseModel):
     feature: str
-    impact: float
+    contribution: float
+    direction: Literal["FRAUD", "LEGITIMATE"]
     description: str
 
 

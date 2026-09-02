@@ -1,0 +1,67 @@
+"""Run the fraud detector against the included sample transactions.
+
+Usage:
+    uv run python run_detector_demo.py
+"""
+
+from pathlib import Path
+from typing import cast
+
+import pandas as pd
+
+from src.fraud_detector import FraudDetector
+from src.schemas import TransactionInput, TransactionType
+
+FIXTURE_PATH = Path("src/tests/fixtures/fraud_examples.csv")
+
+
+def transaction_from_row(row: pd.Series) -> TransactionInput:
+    """Convert one CSV row to the validated detector input schema."""
+    return TransactionInput(
+        step=int(row["step"]),
+        # CSV values are untyped strings; Pydantic still validates this input
+        # at runtime, while the cast tells the type checker the expected shape.
+        type=cast(TransactionType, row["type"]),
+        amount=float(row["amount"]),
+        oldbalanceOrg=float(row["oldbalanceOrg"]),
+        oldbalanceDest=float(row["oldbalanceDest"]),
+        orig_previous_transaction_count=int(row["orig_previous_transaction_count"]),
+        orig_previous_total_amount=float(row["orig_previous_total_amount"]),
+        orig_time_since_previous=float(row["orig_time_since_previous"]),
+        dest_previous_transaction_count=int(row["dest_previous_transaction_count"]),
+        dest_previous_total_amount=float(row["dest_previous_total_amount"]),
+        dest_time_since_previous=float(row["dest_time_since_previous"]),
+    )
+
+
+def main() -> None:
+    examples = pd.read_csv(FIXTURE_PATH)
+    detector = FraudDetector()
+    correct_predictions = 0
+
+    print(f"Testing {len(examples)} sample transactions (threshold: {detector.threshold:.0%})\n")
+
+    for number, (_, row) in enumerate(examples.iterrows(), start=1):
+        prediction = detector.predict(transaction_from_row(row))
+        expected = bool(row["isFraud"])
+        is_correct = prediction.is_fraud == expected
+        correct_predictions += is_correct
+
+        print(f"Example {number}: {row['type']} of {row['amount']:,.2f}")
+        print(
+            f"  Expected: {'FRAUD' if expected else 'LEGITIMATE'} | "
+            f"Predicted: {'FRAUD' if prediction.is_fraud else 'LEGITIMATE'} "
+            f"({prediction.fraud_probability:.2%}, {prediction.risk_level}) | "
+            f"{'CORRECT' if is_correct else 'INCORRECT'}"
+        )
+        print("  Main reasons:")
+        for reason in prediction.reasons:
+            print(f"    - [{reason.direction}] {reason.description}")
+        print()
+
+    accuracy = correct_predictions / len(examples)
+    print(f"Summary: {correct_predictions}/{len(examples)} correct ({accuracy:.1%} accuracy)")
+
+
+if __name__ == "__main__":
+    main()
