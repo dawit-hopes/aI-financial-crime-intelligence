@@ -1,15 +1,11 @@
-import pandas as pd
-import shap
-
-
 class Explainability:
     """
-    Generate SHAP-based explanations for fraud predictions.
+    Generate explanations for fraud predictions using
+    XGBoost's native feature contributions.
     """
 
-    def __init__(self, model, explainer, threshold=0.92):
+    def __init__(self, model, threshold=0.92):
         self.model = model
-        self.explainer = explainer
         self.threshold = threshold
 
     def explain_transaction(
@@ -17,70 +13,70 @@ class Explainability:
         features: dict[str, float],
         top_n: int = 5,
     ):
-        features_df = pd.DataFrame([features])
-
-        fraud_probability = float(self.model.predict_proba(features_df)[0, 1])
-
+        fraud_probability = self.model.predict_proba(features)
         prediction = "FRAUD" if fraud_probability >= self.threshold else "LEGITIMATE"
 
-        shap_values = self.explainer.shap_values(features_df)
+        contributions = self.model.feature_contributions(features)
 
-        if isinstance(shap_values, list):
-            shap_values = shap_values[0]
+        explanation = []
 
-        if shap_values.ndim > 1:
-            shap_values = shap_values[0]
+        for feature, value, contribution in zip(
+            features.keys(),
+            features.values(),
+            contributions,
+            strict=True,
+        ):
+            contribution = float(contribution)
+            value = float(value)
 
-        explanation = pd.DataFrame(
-            {
-                "feature": features_df.columns,
-                "value": features_df.iloc[0].values,
-                "shap_value": shap_values,
-            }
+            # Only keep features that support the prediction.
+            if prediction == "FRAUD" and contribution <= 0:
+                continue
+
+            if prediction == "LEGITIMATE" and contribution >= 0:
+                continue
+
+            # Only show the active transaction type.
+            if feature.startswith("type_") and value != 1:
+                continue
+
+            explanation.append(
+                {
+                    "feature": feature,
+                    "value": value,
+                    "contribution": contribution,
+                    "abs_contribution": abs(contribution),
+                }
+            )
+
+        # Most influential features first.
+        explanation.sort(
+            key=lambda item: item["abs_contribution"],
+            reverse=True,
         )
 
-        if prediction == "FRAUD":
-            explanation = explanation[explanation["shap_value"] > 0].copy()
-
-        else:
-            explanation = explanation[explanation["shap_value"] < 0].copy()
-
-        # Only show the active transaction type.
-        is_categorical = explanation["feature"].str.startswith("type_")
-
-        explanation = explanation[
-            (~is_categorical) | (explanation["value"] == 1)
-        ].copy()
-
-        explanation["abs_shap"] = explanation["shap_value"].abs()
-        explanation["direction"] = explanation["shap_value"].apply(
-            lambda value: "FRAUD" if value > 0 else "LEGITIMATE"
-        )
-
-        explanation = (
-            explanation.sort_values("abs_shap", ascending=False)
-            .head(top_n)
-            .reset_index(drop=True)
-        )
+        explanation = explanation[:top_n]
 
         reasons = []
 
-        for _, row in explanation.iterrows():
+        for item in explanation:
             description = self.describe_shap_reason(
-                feature=row["feature"],
-                value=row["value"],
-                shap_value=row["shap_value"],
+                feature=item["feature"],
+                value=item["value"],
+                shap_value=item["contribution"],
             )
 
             if description is None:
                 continue
 
+            direction = "FRAUD" if item["contribution"] > 0 else "LEGITIMATE"
+
             reasons.append(
                 {
-                    "feature": row["feature"],
-                    "value": float(row["value"]),
-                    "contribution": float(row["shap_value"]),
-                    "direction": row["direction"],
+                    "feature": item["feature"],
+                    "value": item["value"],
+                    "contribution": item["contribution"],
+                    "direction": direction,
                     "description": description,
                 }
             )
@@ -97,34 +93,39 @@ class Explainability:
         value,
         shap_value,
     ):
-        if shap_value > 0:
-            direction = "toward the model's fraud prediction"
-        elif shap_value < 0:
-            direction = "toward the model's legitimate prediction"
-        else:
+        if shap_value == 0:
             return None
 
+        direction = "increased" if shap_value > 0 else "reduced"
+
         if feature == "amount":
-            return f"Transaction amount ({value:,.2f}) " f"contributed {direction}."
+            return (
+                f"The transaction amount of {value:,.2f} "
+                f"{direction} the model's fraud risk."
+            )
 
         if feature == "oldbalanceOrg":
-            return f"Origin account balance ({value:,.2f}) " f"contributed {direction}."
+            return (
+                f"The origin account balance of {value:,.2f} "
+                f"{direction} the model's fraud risk."
+            )
 
         if feature == "oldbalanceDest":
             return (
-                f"Destination account balance ({value:,.2f}) "
-                f"contributed {direction}."
+                f"The destination account balance of {value:,.2f} "
+                f"{direction} the model's fraud risk."
             )
 
         if feature == "hour_of_day":
             return (
-                f"Transaction timing around hour {int(value)} "
-                f"contributed {direction}."
+                f"The transaction occurred around hour {int(value)}, "
+                f"which {direction} the model's fraud risk."
             )
 
         if feature == "step":
             return (
-                f"Transaction timing (step {int(value)}) " f"contributed {direction}."
+                f"The transaction occurred at step {int(value)}, "
+                f"which {direction} the model's fraud risk."
             )
 
         if feature.startswith("type_"):
@@ -134,68 +135,68 @@ class Explainability:
             transaction_type = feature.replace("type_", "").replace("_", " ")
 
             return (
-                f"Transaction type is {transaction_type}, "
-                f"which contributed {direction}."
+                f"The transaction type was {transaction_type}, "
+                f"which {direction} the model's fraud risk."
             )
 
         if feature == "dest_time_since_previous":
             if value == -1:
                 return (
-                    "No previous destination transaction history "
-                    f"was available, which contributed {direction}."
+                    "No previous destination transaction history was available, "
+                    f"which {direction} the model's fraud risk."
                 )
 
             return (
-                f"Time since the previous destination transaction "
-                f"was {value:.0f} steps, which contributed {direction}."
+                f"The previous destination transaction was "
+                f"{value:.0f} steps earlier, which {direction} the model's fraud risk."
             )
 
         if feature == "dest_previous_transaction_count":
             return (
-                f"Destination account has {int(value)} previous "
-                f"transactions, which contributed {direction}."
+                f"The destination account had {int(value)} previous transactions, "
+                f"which {direction} the model's fraud risk."
             )
 
         if feature == "dest_previous_total_amount":
             return (
-                f"Destination account historical transaction volume "
-                f"was {value:,.2f}, which contributed {direction}."
+                f"The destination account's historical transaction volume was "
+                f"{value:,.2f}, which {direction} the model's fraud risk."
             )
 
         if feature == "dest_previous_avg_amount":
             return (
-                f"Destination account historical average transaction "
-                f"was {value:,.2f}, which contributed {direction}."
+                f"The destination account's historical average transaction was "
+                f"{value:,.2f}, which {direction} the model's fraud risk."
             )
 
         if feature == "orig_time_since_previous":
             if value == -1:
                 return (
-                    "No previous origin transaction history "
-                    f"was available, which contributed {direction}."
+                    "No previous origin transaction history was available, "
+                    f"which {direction} the model's fraud risk."
                 )
 
             return (
-                f"Time since the previous origin transaction "
-                f"was {value:.0f} steps, which contributed {direction}."
+                f"The previous origin transaction was "
+                f"{value:.0f} steps earlier, which {direction} the model's fraud risk."
             )
 
         if feature == "orig_previous_transaction_count":
             return (
-                f"Origin account has {int(value)} previous "
-                f"transactions, which contributed {direction}."
+                f"The origin account had {int(value)} previous transactions, "
+                f"which {direction} the model's fraud risk."
             )
 
         if feature == "orig_previous_total_amount":
             return (
-                f"Origin account historical transaction volume "
-                f"was {value:,.2f}, which contributed {direction}."
+                f"The origin account's historical transaction volume was "
+                f"{value:,.2f}, which {direction} the model's fraud risk."
             )
 
         if feature == "orig_previous_avg_amount":
             return (
-                f"Origin account historical average transaction "
-                f"was {value:,.2f}, which contributed {direction}."
+                f"The origin account's historical average transaction was "
+                f"{value:,.2f}, which {direction} the model's fraud risk."
             )
 
         return None

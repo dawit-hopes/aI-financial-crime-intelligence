@@ -1,5 +1,3 @@
-import shap
-
 from .explainability import Explainability
 from .features import FraudFeatureBuilder
 from .model import FraudModel
@@ -9,17 +7,16 @@ DEFAULT_THRESHOLD = 0.92
 
 
 class FraudDetector:
+
     def __init__(self, threshold=DEFAULT_THRESHOLD):
         self.feature_builder = FraudFeatureBuilder()
         self.model = FraudModel()
         self.threshold = threshold
 
-        # Create once when the service starts.
-        self.explainer = shap.TreeExplainer(self.model.model)
-
+        # XGBoost's native feature contributions are used by Explainability.
+        # This replaces the previous SHAP TreeExplainer.
         self.explainability = Explainability(
-            model=self.model.model,
-            explainer=self.explainer,
+            model=self.model,
             threshold=self.threshold,
         )
 
@@ -27,9 +24,7 @@ class FraudDetector:
         features = self.feature_builder.build(transaction)
 
         probability = self.model.predict_proba(features)
-
         is_fraud = probability >= self.threshold
-
         risk_level = self._get_risk_level(probability)
 
         explanation = self.explainability.explain_transaction(
