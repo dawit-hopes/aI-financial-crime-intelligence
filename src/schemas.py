@@ -39,9 +39,22 @@ class FraudReason(BaseModel):
     description: str
 
 
+class RuleResult(BaseModel):
+    rule: str
+    triggered: bool
+    severity: Literal["LOW", "MEDIUM", "HIGH"]
+    description: str
+
+
 class FraudPrediction(BaseModel):
     is_fraud: bool
     fraud_probability: float = Field(..., ge=0.0, le=1.0)
     risk_level: Literal["LOW", "MEDIUM", "HIGH"]
     model_version: str
     reasons: list[FraudReason] = Field(default_factory=list)
+    triggered_rules: list[RuleResult] = Field(default_factory=list)
+
+
+class RuleConfig(BaseModel):
+    drain_relative_tolerance: float = Field(0.01, ge=0.0, le=1.0)
+    high_value_transfer_amount: float = Field(1_000_000.0, ge=0.0)

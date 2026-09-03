@@ -57,6 +57,7 @@ def test_detector_can_predict_all_examples():
         assert 0.0 <= result.fraud_probability <= 1.0
         assert result.risk_level in {"LOW", "MEDIUM", "HIGH"}
         assert isinstance(result.is_fraud, bool)
+        assert all(rule.triggered for rule in result.triggered_rules)
 
 
 def test_real_fraud_examples_are_detected():
@@ -91,3 +92,38 @@ def test_real_legitimate_examples_are_not_detected_as_fraud():
             f"was predicted as fraud "
             f"(probability={result.fraud_probability:.4f})"
         )
+
+
+def test_high_risk_rule_overrides_low_model_probability():
+    df = load_fixture()
+    row = df[
+        (df["step"] == 695)
+        & (df["type"] == "CASH_OUT")
+        & (df["isFraud"] == 1)
+    ].iloc[0]
+
+    detector = FraudDetector()
+    result = detector.predict(make_transaction(row))
+
+    assert result.fraud_probability < detector.threshold
+    assert result.is_fraud is True
+    assert result.risk_level == "HIGH"
+    assert [rule.rule for rule in result.triggered_rules] == [
+        "ORIGIN_ACCOUNT_DRAIN"
+    ]
+
+
+def test_prediction_keeps_model_and_rule_outputs_separate():
+    df = load_fixture()
+    row = df[
+        (df["step"] == 691)
+        & (df["type"] == "PAYMENT")
+        & (df["isFraud"] == 0)
+    ].iloc[0]
+
+    result = FraudDetector().predict(make_transaction(row))
+
+    assert result.is_fraud is False
+    assert result.risk_level == "LOW"
+    assert result.triggered_rules == []
+    assert result.reasons
