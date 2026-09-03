@@ -2,7 +2,6 @@
 
 import argparse
 import json
-from datetime import timedelta
 from pathlib import Path
 
 import numpy as np
@@ -10,13 +9,17 @@ import pandas as pd
 from sklearn.metrics import average_precision_score
 
 from src.network_analyzer import NetworkAnalyzer
-from src.schemas import NetworkConfig, TransactionInput
-from train_anomaly_model import DATASET, PAYSIM_EPOCH, resolve_data_path
+from src.paysim_data import (
+    DATASET,
+    NETWORK_BACKFILL_MAX_STEP,
+    NETWORK_BACKFILL_MIN_STEP,
+    VALIDATION_MAX_STEP,
+    resolve_data_path,
+    transaction_from_row,
+)
+from src.schemas import NetworkConfig
 
 DEFAULT_CONFIG_PATH = Path("src/artifacts/network_config.json")
-TRAIN_START_STEP = 497
-TRAIN_END_STEP = 520
-VALIDATION_END_STEP = 631
 
 
 def parse_args() -> argparse.Namespace:
@@ -43,7 +46,7 @@ def load_network_data(path: Path) -> pd.DataFrame:
         ],
     )
     data["source_row"] = data.index
-    return data.loc[data["step"] >= TRAIN_START_STEP].copy()
+    return data.loc[data["step"] >= NETWORK_BACKFILL_MIN_STEP].copy()
 
 
 def calibrated_config(training: pd.DataFrame) -> NetworkConfig:
@@ -63,26 +66,6 @@ def calibrated_config(training: pd.DataFrame) -> NetworkConfig:
             100_000.0,
             float(np.quantile(volume, 0.99)),
         ),
-    )
-
-
-def transaction_from_row(row: pd.Series) -> TransactionInput:
-    return TransactionInput(
-        transaction_id=f"paysim_{int(row['source_row']):08d}",
-        sender_id=str(row["nameOrig"]),
-        receiver_id=str(row["nameDest"]),
-        timestamp=PAYSIM_EPOCH + timedelta(hours=int(row["step"])),
-        step=int(row["step"]),
-        type=row["type"],
-        amount=float(row["amount"]),
-        oldbalanceOrg=0.0,
-        oldbalanceDest=0.0,
-        orig_previous_transaction_count=0,
-        orig_previous_total_amount=0.0,
-        orig_time_since_previous=-1.0,
-        dest_previous_transaction_count=0,
-        dest_previous_total_amount=0.0,
-        dest_time_since_previous=-1.0,
     )
 
 
@@ -114,11 +97,14 @@ def main() -> None:
     args = parse_args()
     path = resolve_data_path(args.data_path)
     data = load_network_data(path)
-    training = data.loc[data["step"] <= TRAIN_END_STEP]
+    training = data.loc[data["step"] <= NETWORK_BACKFILL_MAX_STEP]
     validation = data.loc[
-        data["step"].between(TRAIN_END_STEP + 1, VALIDATION_END_STEP)
+        data["step"].between(
+            NETWORK_BACKFILL_MAX_STEP + 1,
+            VALIDATION_MAX_STEP,
+        )
     ]
-    test = data.loc[data["step"] > VALIDATION_END_STEP]
+    test = data.loc[data["step"] > VALIDATION_MAX_STEP]
     config = calibrated_config(training)
     analyzer = NetworkAnalyzer(config=config)
 
@@ -146,12 +132,15 @@ def main() -> None:
         "config": config.model_dump(),
         "calibration": {
             "dataset": DATASET,
-            "training_steps": [TRAIN_START_STEP, TRAIN_END_STEP],
-            "validation_steps": [
-                TRAIN_END_STEP + 1,
-                VALIDATION_END_STEP,
+            "training_steps": [
+                NETWORK_BACKFILL_MIN_STEP,
+                NETWORK_BACKFILL_MAX_STEP,
             ],
-            "test_min_step": VALIDATION_END_STEP + 1,
+            "validation_steps": [
+                NETWORK_BACKFILL_MAX_STEP + 1,
+                VALIDATION_MAX_STEP,
+            ],
+            "test_min_step": VALIDATION_MAX_STEP + 1,
             "labels_used_for_thresholds": False,
             "validation_metrics": validation_metrics,
             "test_metrics": test_metrics,

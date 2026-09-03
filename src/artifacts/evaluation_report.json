@@ -1,0 +1,141 @@
+{
+  "dataset": "ealaxi/paysim1",
+  "splits": {
+    "validation_steps": [
+      521,
+      631
+    ],
+    "test_min_step": 632,
+    "network_backfill_steps": [
+      497,
+      520
+    ]
+  },
+  "artifact_versions": {
+    "fraud_model_config": "1.0.0",
+    "risk_config": "2.0.0",
+    "network_config": "1.0.0"
+  },
+  "validation_metrics": {
+    "overall": {
+      "pr_auc": 0.9916227578029947,
+      "precision": 0.5101775660459074,
+      "recall": 0.9983050847457627,
+      "f1": 0.6752651189452565,
+      "false_positive_rate": 0.00595366563666321,
+      "tn": 188836,
+      "fp": 1131,
+      "fn": 2,
+      "tp": 1178,
+      "risk_levels": {
+        "LOW": 180468,
+        "MEDIUM": 8370,
+        "HIGH": 2309
+      },
+      "signal_summary": {
+        "mean_model_probability": 0.02015925571322441,
+        "rule_trigger_rate": 0.006780122104976798,
+        "mean_anomaly_score": 0.5025789737701416,
+        "network_positive_rate": 0.005310049333758835
+      }
+    },
+    "by_transaction_type": {
+      "CASH_IN": {
+        "count": 43121,
+        "fraud_count": 0,
+        "precision": 0.0,
+        "recall": 0.0,
+        "false_positive_rate": 0.0
+      },
+      "CASH_OUT": {
+        "count": 61211,
+        "fraud_count": 590,
+        "precision": 0.36341161928306553,
+        "recall": 0.9966101694915255,
+        "false_positive_rate": 0.01699081176489995
+      },
+      "DEBIT": {
+        "count": 1582,
+        "fraud_count": 0,
+        "precision": 0.0,
+        "recall": 0.0,
+        "false_positive_rate": 0.0
+      },
+      "PAYMENT": {
+        "count": 67743,
+        "fraud_count": 0,
+        "precision": 0.0,
+        "recall": 0.0,
+        "false_positive_rate": 0.0
+      },
+      "TRANSFER": {
+        "count": 17490,
+        "fraud_count": 590,
+        "precision": 0.85383502170767,
+        "recall": 1.0,
+        "false_positive_rate": 0.005976331360946745
+      }
+    }
+  },
+  "test_metrics": {
+    "overall": {
+      "pr_auc": 0.9928747838054405,
+      "precision": 0.6727861771058316,
+      "recall": 0.9952076677316294,
+      "f1": 0.8028350515463918,
+      "false_positive_rate": 0.006869657877434421,
+      "tn": 87608,
+      "fp": 606,
+      "fn": 6,
+      "tp": 1246,
+      "risk_levels": {
+        "LOW": 83517,
+        "MEDIUM": 4097,
+        "HIGH": 1852
+      },
+      "signal_summary": {
+        "mean_model_probability": 0.028355292975902557,
+        "rule_trigger_rate": 0.014720676010998591,
+        "mean_anomaly_score": 0.5338578224182129,
+        "network_positive_rate": 0.0065052645697806985
+      }
+    },
+    "by_transaction_type": {
+      "CASH_IN": {
+        "count": 20713,
+        "fraud_count": 0,
+        "precision": 0.0,
+        "recall": 0.0,
+        "false_positive_rate": 0.0
+      },
+      "CASH_OUT": {
+        "count": 29152,
+        "fraud_count": 626,
+        "precision": 0.5316780821917808,
+        "recall": 0.9920127795527156,
+        "false_positive_rate": 0.01917548902755381
+      },
+      "DEBIT": {
+        "count": 712,
+        "fraud_count": 0,
+        "precision": 0.0,
+        "recall": 0.0,
+        "false_positive_rate": 0.0
+      },
+      "PAYMENT": {
+        "count": 30062,
+        "fraud_count": 0,
+        "precision": 0.0,
+        "recall": 0.0,
+        "false_positive_rate": 0.0
+      },
+      "TRANSFER": {
+        "count": 8827,
+        "fraud_count": 626,
+        "precision": 0.9137426900584795,
+        "recall": 0.9984025559105432,
+        "false_positive_rate": 0.007194244604316547
+      }
+    }
+  }
+}

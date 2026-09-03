@@ -14,7 +14,7 @@ from src.anomaly_detector import (
 )
 from src.anomaly_features import AnomalyFeatureBuilder
 from src.schemas import TransactionInput, TransactionType
-from train_anomaly_model import build_feature_frame
+from scripts.train_anomaly_model import build_feature_frame
 
 FIXTURE_PATH = Path(__file__).parent / "fixtures" / "fraud_examples.csv"
 

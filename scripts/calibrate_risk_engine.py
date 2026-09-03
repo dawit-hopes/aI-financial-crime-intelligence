@@ -1,7 +1,6 @@
 """Calibrate and evaluate the transparent multi-signal risk engine."""
 
 import argparse
-from datetime import timedelta
 import json
 from pathlib import Path
 
@@ -21,24 +20,25 @@ from src.anomaly_features import AnomalyFeatureBuilder
 from src.features import FraudFeatureBuilder
 from src.model import FraudModel
 from src.network_analyzer import NetworkAnalyzer
-from src.rules import FraudRulesEngine
-from src.schemas import TransactionInput
-from train_anomaly_model import (
+from src.paysim_data import (
     DATASET,
-    PAYSIM_EPOCH,
+    PRESERVED_DECISION_THRESHOLD,
+    RANDOM_STATE,
     add_past_only_history,
-    build_feature_frame,
+    build_fraud_feature_frame,
     load_data,
     resolve_data_path,
+    transaction_from_row,
 )
+from src.rules import FraudRulesEngine
+from scripts.train_anomaly_model import build_feature_frame
 
 DEFAULT_CONFIG_PATH = Path("src/artifacts/risk_config.json")
 RISK_ENGINE_VERSION = "2.0.0"
 TARGET_RECALL = 0.95
-MODEL_DECISION_THRESHOLD = 0.92
+MODEL_DECISION_THRESHOLD = PRESERVED_DECISION_THRESHOLD
 HIGH_RULE_FLOOR = 70.0
 MEDIUM_REVIEW_QUANTILE = 0.95
-RANDOM_STATE = 42
 WEIGHT_CANDIDATES = [
     (0.65, 0.20, 0.10, 0.05),
     (0.60, 0.25, 0.10, 0.05),
@@ -58,96 +58,6 @@ def parse_args() -> argparse.Namespace:
         default=DEFAULT_CONFIG_PATH,
     )
     return parser.parse_args()
-
-
-def build_fraud_feature_frame(data: pd.DataFrame) -> pd.DataFrame:
-    origin_count = data["orig_previous_transaction_count"].to_numpy()
-    destination_count = data[
-        "dest_previous_transaction_count"
-    ].to_numpy()
-    origin_average = np.divide(
-        data["orig_previous_total_amount"].to_numpy(),
-        origin_count,
-        out=np.zeros(len(data), dtype=np.float64),
-        where=origin_count > 0,
-    )
-    destination_average = np.divide(
-        data["dest_previous_total_amount"].to_numpy(),
-        destination_count,
-        out=np.zeros(len(data), dtype=np.float64),
-        where=destination_count > 0,
-    )
-
-    features = pd.DataFrame(
-        {
-            "step": data["step"],
-            "amount": data["amount"],
-            "oldbalanceOrg": data["oldbalanceOrg"],
-            "oldbalanceDest": data["oldbalanceDest"],
-            "hour_of_day": data["step"] % 24,
-            "orig_previous_transaction_count": origin_count,
-            "orig_previous_total_amount": data[
-                "orig_previous_total_amount"
-            ],
-            "orig_previous_avg_amount": origin_average,
-            "orig_time_since_previous": data[
-                "orig_time_since_previous"
-            ],
-            "dest_previous_transaction_count": destination_count,
-            "dest_previous_total_amount": data[
-                "dest_previous_total_amount"
-            ],
-            "dest_previous_avg_amount": destination_average,
-            "dest_time_since_previous": data[
-                "dest_time_since_previous"
-            ],
-            "type_CASH_IN": (data["type"] == "CASH_IN").astype(float),
-            "type_CASH_OUT": (data["type"] == "CASH_OUT").astype(float),
-            "type_DEBIT": (data["type"] == "DEBIT").astype(float),
-            "type_PAYMENT": (data["type"] == "PAYMENT").astype(float),
-            "type_TRANSFER": (data["type"] == "TRANSFER").astype(float),
-        },
-        index=data.index,
-    )
-    return features.loc[
-        :,
-        FraudFeatureBuilder.FEATURE_NAMES,
-    ].astype("float32")
-
-
-def transaction_from_row(row: pd.Series) -> TransactionInput:
-    source_index = int(row.get("original_index", row.name))
-    return TransactionInput(
-        transaction_id=f"paysim_{source_index:08d}",
-        sender_id=str(row.get("nameOrig", f"sender_{source_index}")),
-        receiver_id=str(
-            row.get("nameDest", f"receiver_{source_index}")
-        ),
-        timestamp=PAYSIM_EPOCH + timedelta(hours=int(row["step"])),
-        step=int(row["step"]),
-        type=row["type"],
-        amount=float(row["amount"]),
-        oldbalanceOrg=float(row["oldbalanceOrg"]),
-        oldbalanceDest=float(row["oldbalanceDest"]),
-        orig_previous_transaction_count=int(
-            row["orig_previous_transaction_count"]
-        ),
-        orig_previous_total_amount=float(
-            row["orig_previous_total_amount"]
-        ),
-        orig_time_since_previous=float(
-            row["orig_time_since_previous"]
-        ),
-        dest_previous_transaction_count=int(
-            row["dest_previous_transaction_count"]
-        ),
-        dest_previous_total_amount=float(
-            row["dest_previous_total_amount"]
-        ),
-        dest_time_since_previous=float(
-            row["dest_time_since_previous"]
-        ),
-    )
 
 
 def assert_batch_parity(

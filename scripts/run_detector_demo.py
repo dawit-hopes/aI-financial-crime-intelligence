@@ -1,7 +1,7 @@
 """Run the fraud detector against the included sample transactions.
 
 Usage:
-    uv run python run_detector_demo.py
+    uv run python -m scripts.run_detector_demo
 """
 
 from pathlib import Path

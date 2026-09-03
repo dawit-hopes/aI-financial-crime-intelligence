@@ -1,11 +1,9 @@
 """Train and evaluate the standalone PaySim Isolation Forest model."""
 
 import argparse
-from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
 import joblib
-import kagglehub
 import numpy as np
 import pandas as pd
 from sklearn.ensemble import IsolationForest
@@ -21,13 +19,20 @@ from src.anomaly_features import (
     MAX_RATIO,
     AnomalyFeatureBuilder,
 )
-from src.schemas import TransactionInput
+from src.paysim_data import (
+    DATASET,
+    RANDOM_STATE,
+    TRAIN_MAX_STEP,
+    VALIDATION_MAX_STEP,
+    VALIDATION_MIN_STEP,
+    add_past_only_history,
+    load_data,
+    resolve_data_path,
+    transaction_from_row,
+)
 
-DATASET = "ealaxi/paysim1"
 DEFAULT_ARTIFACT_PATH = Path("src/artifacts/anomaly_model.joblib")
 MODEL_VERSION = "1.0.0"
-RANDOM_STATE = 42
-PAYSIM_EPOCH = datetime(2026, 1, 1, tzinfo=timezone.utc)
 MAX_TRAIN_SAMPLES = 250_000
 MAX_FALSE_POSITIVE_RATE = 0.01
 
@@ -50,81 +55,6 @@ def parse_args() -> argparse.Namespace:
         default=MAX_TRAIN_SAMPLES,
     )
     return parser.parse_args()
-
-
-def resolve_data_path(data_path: Path | None) -> Path:
-    if data_path is not None:
-        if not data_path.exists():
-            raise FileNotFoundError(f"PaySim dataset not found: {data_path}")
-        return data_path
-
-    dataset_directory = Path(kagglehub.dataset_download(DATASET))
-    csv_paths = sorted(dataset_directory.glob("*.csv"))
-    if len(csv_paths) != 1:
-        raise RuntimeError(
-            "Expected exactly one PaySim CSV in "
-            f"{dataset_directory}, found {len(csv_paths)}."
-        )
-    return csv_paths[0]
-
-
-def load_data(data_path: Path) -> pd.DataFrame:
-    columns = [
-        "step",
-        "type",
-        "amount",
-        "nameOrig",
-        "oldbalanceOrg",
-        "nameDest",
-        "oldbalanceDest",
-        "isFraud",
-    ]
-    data = pd.read_csv(
-        data_path,
-        usecols=columns,
-        dtype={
-            "step": "int16",
-            "type": "category",
-            "amount": "float32",
-            "oldbalanceOrg": "float32",
-            "oldbalanceDest": "float32",
-            "isFraud": "int8",
-        },
-    )
-    data["original_index"] = np.arange(len(data), dtype=np.int32)
-    return data.sort_values(
-        ["step", "original_index"],
-        kind="stable",
-    ).reset_index(drop=True)
-
-
-def add_past_only_history(data: pd.DataFrame) -> pd.DataFrame:
-    origin = data.groupby("nameOrig", sort=False)
-    destination = data.groupby("nameDest", sort=False)
-
-    data["orig_previous_transaction_count"] = (
-        origin.cumcount().astype("int32")
-    )
-    data["orig_previous_total_amount"] = (
-        origin["amount"].cumsum() - data["amount"]
-    ).astype("float32")
-    origin_previous_step = origin["step"].shift(1)
-    data["orig_time_since_previous"] = (
-        data["step"] - origin_previous_step
-    ).fillna(-1).astype("float32")
-
-    data["dest_previous_transaction_count"] = (
-        destination.cumcount().astype("int32")
-    )
-    data["dest_previous_total_amount"] = (
-        destination["amount"].cumsum() - data["amount"]
-    ).astype("float32")
-    destination_previous_step = destination["step"].shift(1)
-    data["dest_time_since_previous"] = (
-        data["step"] - destination_previous_step
-    ).fillna(-1).astype("float32")
-
-    return data
 
 
 def build_feature_frame(data: pd.DataFrame) -> pd.DataFrame:
@@ -228,36 +158,7 @@ def assert_feature_parity(
     sample = data.sample(n=min(20, len(data)), random_state=RANDOM_STATE)
 
     for index, row in sample.iterrows():
-        transaction = TransactionInput(
-            transaction_id=f"paysim_{int(row['original_index']):08d}",
-            sender_id=str(row["nameOrig"]),
-            receiver_id=str(row["nameDest"]),
-            timestamp=PAYSIM_EPOCH
-            + timedelta(hours=int(row["step"])),
-            step=int(row["step"]),
-            type=row["type"],
-            amount=float(row["amount"]),
-            oldbalanceOrg=float(row["oldbalanceOrg"]),
-            oldbalanceDest=float(row["oldbalanceDest"]),
-            orig_previous_transaction_count=int(
-                row["orig_previous_transaction_count"]
-            ),
-            orig_previous_total_amount=float(
-                row["orig_previous_total_amount"]
-            ),
-            orig_time_since_previous=float(
-                row["orig_time_since_previous"]
-            ),
-            dest_previous_transaction_count=int(
-                row["dest_previous_transaction_count"]
-            ),
-            dest_previous_total_amount=float(
-                row["dest_previous_total_amount"]
-            ),
-            dest_time_since_previous=float(
-                row["dest_time_since_previous"]
-            ),
-        )
+        transaction = transaction_from_row(row)
         runtime_values = np.asarray(
             [
                 builder.build(transaction)[name]
@@ -321,9 +222,12 @@ def main() -> None:
     print(f"Loading PaySim from {data_path}")
     data = add_past_only_history(load_data(data_path))
 
-    train_mask = (data["step"] <= 520) & (data["isFraud"] == 0)
-    validation_mask = data["step"].between(521, 631)
-    test_mask = data["step"] > 631
+    train_mask = (data["step"] <= TRAIN_MAX_STEP) & (data["isFraud"] == 0)
+    validation_mask = data["step"].between(
+        VALIDATION_MIN_STEP,
+        VALIDATION_MAX_STEP,
+    )
+    test_mask = data["step"] > VALIDATION_MAX_STEP
 
     normal_train = data.loc[train_mask]
     sample_size = min(args.max_train_samples, len(normal_train))
@@ -411,9 +315,9 @@ def main() -> None:
             "dataset": DATASET,
             "random_state": RANDOM_STATE,
             "normal_training_samples": sample_size,
-            "train_max_step": 520,
-            "validation_steps": [521, 631],
-            "test_min_step": 632,
+            "train_max_step": TRAIN_MAX_STEP,
+            "validation_steps": [VALIDATION_MIN_STEP, VALIDATION_MAX_STEP],
+            "test_min_step": VALIDATION_MAX_STEP + 1,
             "max_validation_false_positive_rate": (
                 MAX_FALSE_POSITIVE_RATE
             ),

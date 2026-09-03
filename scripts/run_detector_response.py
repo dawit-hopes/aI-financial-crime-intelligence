@@ -1,8 +1,8 @@
 """Print the exact JSON response returned by FraudDetector.
 
 Usage:
-    uv run python run_detector_response.py
-    uv run python run_detector_response.py --example 5
+    uv run python -m scripts.run_detector_response
+    uv run python -m scripts.run_detector_response --example 5
 """
 
 import argparse

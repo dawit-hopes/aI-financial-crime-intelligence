@@ -6,7 +6,7 @@ import pandas as pd
 import pytest
 from pydantic import ValidationError
 
-from calibrate_risk_engine import (
+from scripts.calibrate_risk_engine import (
     assert_batch_parity,
     build_fraud_feature_frame,
     build_high_rule_mask,
@@ -28,7 +28,7 @@ from src.schemas import (
     RuleResult,
     TransactionInput,
 )
-from train_anomaly_model import build_feature_frame
+from scripts.train_anomaly_model import build_feature_frame
 
 
 def make_config(**overrides) -> RiskConfig:
