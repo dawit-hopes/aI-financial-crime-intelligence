@@ -1,10 +1,16 @@
 from typing import cast
+from datetime import timedelta
 
 import pandas as pd
 
 from src.anomaly_detector import AnomalyDetector
 from src.fraud_detector import FraudDetector
-from src.schemas import AnomalyPrediction, TransactionInput
+from src.network_analyzer import NetworkAnalyzer
+from src.schemas import (
+    AnomalyPrediction,
+    NetworkConfig,
+    TransactionInput,
+)
 
 FIXTURE_PATH = "src/tests/fixtures/fraud_examples.csv"
 
@@ -15,6 +21,10 @@ def load_fixture():
 
 def make_transaction(row) -> TransactionInput:
     return TransactionInput(
+        transaction_id=row["transaction_id"],
+        sender_id=row["sender_id"],
+        receiver_id=row["receiver_id"],
+        timestamp=row["timestamp"],
         step=int(row["step"]),
         type=row["type"],
         amount=float(row["amount"]),
@@ -53,7 +63,9 @@ def test_detector_can_predict_all_examples():
     df = load_fixture()
     detector = FraudDetector()
 
-    for _, row in df.iterrows():
+    for _, row in df.sort_values(
+        ["timestamp", "transaction_id"]
+    ).iterrows():
         transaction = make_transaction(row)
         result = detector.predict(transaction)
 
@@ -61,7 +73,7 @@ def test_detector_can_predict_all_examples():
         assert 0.0 <= result.risk_score <= 100.0
         assert result.risk_level in {"LOW", "MEDIUM", "HIGH"}
         assert isinstance(result.is_fraud, bool)
-        assert result.risk_engine_version == "1.0.0"
+        assert result.risk_engine_version == "2.0.0"
         assert all(rule.triggered for rule in result.triggered_rules)
         assert 0.0 <= result.anomaly.anomaly_score <= 1.0
         assert result.anomaly.is_anomaly == (
@@ -71,6 +83,7 @@ def test_detector_can_predict_all_examples():
             result.fraud_probability,
             result.triggered_rules,
             result.anomaly,
+            result.network,
         )
         assert result.is_fraud == expected_risk.is_fraud
         assert result.risk_level == expected_risk.risk_level
@@ -84,7 +97,9 @@ def test_real_fraud_examples_are_detected():
 
     detector = FraudDetector()
 
-    for _, row in fraud_df.iterrows():
+    for _, row in fraud_df.sort_values(
+        ["timestamp", "transaction_id"]
+    ).iterrows():
         transaction = make_transaction(row)
         result = detector.predict(transaction)
 
@@ -101,7 +116,9 @@ def test_real_legitimate_examples_are_not_detected_as_fraud():
 
     detector = FraudDetector()
 
-    for _, row in legitimate_df.iterrows():
+    for _, row in legitimate_df.sort_values(
+        ["timestamp", "transaction_id"]
+    ).iterrows():
         transaction = make_transaction(row)
         result = detector.predict(transaction)
 
@@ -131,6 +148,14 @@ def test_high_risk_rule_overrides_low_model_probability():
     assert [rule.rule for rule in result.triggered_rules] == [
         "ORIGIN_ACCOUNT_DRAIN"
     ]
+    assert "RULE" in {
+        reason.source for reason in result.decision_reasons
+    }
+    assert all(
+        "reduced" not in reason.description
+        for reason in result.decision_reasons
+        if reason.source == "MODEL"
+    )
 
 
 def test_prediction_keeps_model_and_rule_outputs_separate():
@@ -185,3 +210,49 @@ def test_anomaly_alone_raises_risk_without_declaring_fraud():
     assert result.anomaly.is_anomaly is True
     assert result.is_fraud is False
     assert result.risk_level == "MEDIUM"
+
+
+def test_detector_network_recording_is_idempotent():
+    row = load_fixture().iloc[1]
+    detector = FraudDetector()
+    transaction = make_transaction(row)
+
+    first = detector.predict(transaction)
+    second = detector.predict(transaction)
+
+    assert first.network == second.network
+    assert detector.network_analyzer.graph.number_of_edges() == 1
+
+
+def test_network_evidence_appears_in_unified_reasons():
+    row = load_fixture().iloc[1]
+    first_transaction = make_transaction(row).model_copy(
+        update={
+            "transaction_id": "network_tx_1",
+            "sender_id": "shared_sender",
+            "receiver_id": "receiver_1",
+        }
+    )
+    second_transaction = first_transaction.model_copy(
+        update={
+            "transaction_id": "network_tx_2",
+            "receiver_id": "receiver_2",
+            "timestamp": first_transaction.timestamp
+            + timedelta(hours=1),
+            "step": first_transaction.step + 1,
+        }
+    )
+    analyzer = NetworkAnalyzer(
+        config=NetworkConfig(fan_out_threshold=2)
+    )
+    detector = FraudDetector(network_analyzer=analyzer)
+    detector.predict(first_transaction)
+
+    result = detector.predict(second_transaction)
+
+    assert "HIGH_SENDER_FAN_OUT" in {
+        item.code for item in result.network.evidence
+    }
+    assert "NETWORK" in {
+        reason.source for reason in result.decision_reasons
+    }

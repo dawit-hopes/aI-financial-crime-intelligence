@@ -1,6 +1,7 @@
 """Train and evaluate the standalone PaySim Isolation Forest model."""
 
 import argparse
+from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
 import joblib
@@ -26,6 +27,7 @@ DATASET = "ealaxi/paysim1"
 DEFAULT_ARTIFACT_PATH = Path("src/artifacts/anomaly_model.joblib")
 MODEL_VERSION = "1.0.0"
 RANDOM_STATE = 42
+PAYSIM_EPOCH = datetime(2026, 1, 1, tzinfo=timezone.utc)
 MAX_TRAIN_SAMPLES = 250_000
 MAX_FALSE_POSITIVE_RATE = 0.01
 
@@ -227,6 +229,11 @@ def assert_feature_parity(
 
     for index, row in sample.iterrows():
         transaction = TransactionInput(
+            transaction_id=f"paysim_{int(row['original_index']):08d}",
+            sender_id=str(row["nameOrig"]),
+            receiver_id=str(row["nameDest"]),
+            timestamp=PAYSIM_EPOCH
+            + timedelta(hours=int(row["step"])),
             step=int(row["step"]),
             type=row["type"],
             amount=float(row["amount"]),

@@ -2,16 +2,17 @@
   "config": {
     "model_weight": 0.6,
     "rule_weight": 0.25,
-    "anomaly_weight": 0.15,
+    "anomaly_weight": 0.1,
+    "network_weight": 0.05,
     "low_rule_score": 20.0,
     "medium_rule_score": 60.0,
     "high_rule_score": 100.0,
-    "medium_threshold": 14.72638771370017,
+    "medium_threshold": 9.88617508634271,
     "high_threshold": 55.0,
     "low_rule_floor": 0.0,
     "medium_rule_floor": 30.0,
     "high_rule_floor": 70.0,
-    "version": "1.0.0"
+    "version": "2.0.0"
   },
   "calibration": {
     "dataset": "ealaxi/paysim1",
@@ -24,35 +25,35 @@
     ],
     "test_min_step": 632,
     "validation_metrics": {
-      "pr_auc": 0.9907086759683948,
-      "precision": 0.46232339089481944,
+      "pr_auc": 0.9915427937145763,
+      "precision": 0.5017035775127768,
       "recall": 0.9983050847457627,
-      "f1": 0.6319742489270386,
-      "false_positive_rate": 0.007211778887912111,
-      "tn": 188597,
-      "fp": 1370,
+      "f1": 0.6678004535147393,
+      "false_positive_rate": 0.006158964451720562,
+      "tn": 188797,
+      "fp": 1170,
       "fn": 2,
       "tp": 1178,
       "risk_levels": {
         "LOW": 180468,
-        "MEDIUM": 8131,
-        "HIGH": 2548
+        "MEDIUM": 8331,
+        "HIGH": 2348
       }
     },
     "test_metrics": {
-      "pr_auc": 0.9911195033720493,
-      "precision": 0.6291624621594349,
-      "recall": 0.9960063897763578,
-      "f1": 0.7711811997526283,
-      "false_positive_rate": 0.008332010791937787,
-      "tn": 87479,
-      "fp": 735,
-      "fn": 5,
-      "tp": 1247,
+      "pr_auc": 0.9921628876546054,
+      "precision": 0.6659540352752539,
+      "recall": 0.9952076677316294,
+      "f1": 0.797950688440602,
+      "false_positive_rate": 0.007085043190423289,
+      "tn": 87589,
+      "fp": 625,
+      "fn": 6,
+      "tp": 1246,
       "risk_levels": {
-        "LOW": 83472,
-        "MEDIUM": 4012,
-        "HIGH": 1982
+        "LOW": 83499,
+        "MEDIUM": 4096,
+        "HIGH": 1871
       }
     }
   }

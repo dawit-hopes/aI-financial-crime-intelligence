@@ -3,6 +3,7 @@ from pathlib import Path
 
 from .schemas import (
     AnomalyPrediction,
+    NetworkPrediction,
     RiskAssessment,
     RiskConfig,
     RiskSignalScores,
@@ -52,6 +53,7 @@ class RiskEngine:
         fraud_probability: float,
         triggered_rules: list[RuleResult],
         anomaly: AnomalyPrediction,
+        network: NetworkPrediction,
     ) -> RiskAssessment:
         if not 0.0 <= fraud_probability <= 1.0:
             raise ValueError(
@@ -60,11 +62,13 @@ class RiskEngine:
 
         model_score = fraud_probability * 100
         anomaly_score = anomaly.anomaly_score * 100
+        network_score = network.network_score
         rule_score, rule_floor = self._rule_signal(triggered_rules)
         weighted_score = (
             model_score * self.config.model_weight
             + rule_score * self.config.rule_weight
             + anomaly_score * self.config.anomaly_weight
+            + network_score * self.config.network_weight
         )
         risk_score = min(100.0, max(weighted_score, rule_floor))
         rule_floor_applied = rule_floor > weighted_score
@@ -84,6 +88,7 @@ class RiskEngine:
                 model_score=model_score,
                 rule_score=rule_score,
                 anomaly_score=anomaly_score,
+                network_score=network_score,
                 weighted_score=weighted_score,
                 rule_floor_applied=rule_floor_applied,
             ),

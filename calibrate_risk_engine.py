@@ -1,6 +1,7 @@
 """Calibrate and evaluate the transparent multi-signal risk engine."""
 
 import argparse
+from datetime import timedelta
 import json
 from pathlib import Path
 
@@ -19,10 +20,12 @@ from src.anomaly_detector import AnomalyDetector
 from src.anomaly_features import AnomalyFeatureBuilder
 from src.features import FraudFeatureBuilder
 from src.model import FraudModel
+from src.network_analyzer import NetworkAnalyzer
 from src.rules import FraudRulesEngine
 from src.schemas import TransactionInput
 from train_anomaly_model import (
     DATASET,
+    PAYSIM_EPOCH,
     add_past_only_history,
     build_feature_frame,
     load_data,
@@ -30,20 +33,19 @@ from train_anomaly_model import (
 )
 
 DEFAULT_CONFIG_PATH = Path("src/artifacts/risk_config.json")
-RISK_ENGINE_VERSION = "1.0.0"
+RISK_ENGINE_VERSION = "2.0.0"
 TARGET_RECALL = 0.95
 MODEL_DECISION_THRESHOLD = 0.92
 HIGH_RULE_FLOOR = 70.0
 MEDIUM_REVIEW_QUANTILE = 0.95
 RANDOM_STATE = 42
 WEIGHT_CANDIDATES = [
-    (0.80, 0.10, 0.10),
-    (0.75, 0.15, 0.10),
-    (0.75, 0.10, 0.15),
-    (0.70, 0.20, 0.10),
-    (0.70, 0.15, 0.15),
-    (0.65, 0.20, 0.15),
-    (0.60, 0.25, 0.15),
+    (0.65, 0.20, 0.10, 0.05),
+    (0.60, 0.25, 0.10, 0.05),
+    (0.60, 0.20, 0.15, 0.05),
+    (0.60, 0.20, 0.10, 0.10),
+    (0.55, 0.25, 0.10, 0.10),
+    (0.55, 0.20, 0.15, 0.10),
 ]
 
 
@@ -114,7 +116,14 @@ def build_fraud_feature_frame(data: pd.DataFrame) -> pd.DataFrame:
 
 
 def transaction_from_row(row: pd.Series) -> TransactionInput:
+    source_index = int(row.get("original_index", row.name))
     return TransactionInput(
+        transaction_id=f"paysim_{source_index:08d}",
+        sender_id=str(row.get("nameOrig", f"sender_{source_index}")),
+        receiver_id=str(
+            row.get("nameDest", f"receiver_{source_index}")
+        ),
+        timestamp=PAYSIM_EPOCH + timedelta(hours=int(row["step"])),
         step=int(row["step"]),
         type=row["type"],
         amount=float(row["amount"]),
@@ -217,7 +226,8 @@ def score_signals(
     data: pd.DataFrame,
     fraud_model: FraudModel,
     anomaly_detector: AnomalyDetector,
-) -> tuple[np.ndarray, np.ndarray, np.ndarray]:
+    network_analyzer: NetworkAnalyzer,
+) -> tuple[np.ndarray, np.ndarray, np.ndarray, np.ndarray]:
     fraud_features = build_fraud_feature_frame(data)
     fraud_matrix = xgb.DMatrix(
         fraud_features.to_numpy(dtype=np.float32),
@@ -240,27 +250,38 @@ def score_signals(
         * 100
     )
     high_rule_mask = build_high_rule_mask(data)
+    network_scores = np.asarray(
+        [
+            network_analyzer.analyze_and_record(
+                transaction_from_row(row)
+            ).network_score
+            for _, row in data.iterrows()
+        ],
+        dtype=np.float32,
+    )
     assert_batch_parity(
         data,
         fraud_features,
         anomaly_features,
         high_rule_mask,
     )
-    return model_scores, anomaly_scores, high_rule_mask
+    return model_scores, anomaly_scores, high_rule_mask, network_scores
 
 
 def combined_scores(
     model_scores: np.ndarray,
     anomaly_scores: np.ndarray,
     high_rule_mask: np.ndarray,
-    weights: tuple[float, float, float],
+    network_scores: np.ndarray,
+    weights: tuple[float, float, float, float],
 ) -> tuple[np.ndarray, np.ndarray]:
-    model_weight, rule_weight, anomaly_weight = weights
+    model_weight, rule_weight, anomaly_weight, network_weight = weights
     rule_scores = high_rule_mask.astype(float) * 100
     weighted_scores = (
         model_scores * model_weight
         + rule_scores * rule_weight
         + anomaly_scores * anomaly_weight
+        + network_scores * network_weight
     )
     risk_scores = np.where(
         high_rule_mask,
@@ -324,6 +345,7 @@ def choose_configuration(
     model_scores: np.ndarray,
     anomaly_scores: np.ndarray,
     high_rule_mask: np.ndarray,
+    network_scores: np.ndarray,
 ) -> dict:
     candidates = []
 
@@ -332,6 +354,7 @@ def choose_configuration(
             model_scores,
             anomaly_scores,
             high_rule_mask,
+            network_scores,
             weights,
         )
         high_threshold = select_high_threshold(
@@ -413,19 +436,33 @@ def main() -> None:
 
     fraud_model = FraudModel()
     anomaly_detector = AnomalyDetector()
+    network_analyzer = NetworkAnalyzer()
+    network_history = data.loc[data["step"].between(497, 520)]
+    network_analyzer.backfill(
+        [
+            transaction_from_row(row)
+            for _, row in network_history.iterrows()
+        ]
+    )
 
     print(f"Scoring {len(validation):,} validation transactions")
     validation_signals = score_signals(
         validation,
         fraud_model,
         anomaly_detector,
+        network_analyzer,
     )
     validation_labels = validation["isFraud"].to_numpy()
     selected = choose_configuration(
         validation_labels,
         *validation_signals,
     )
-    model_weight, rule_weight, anomaly_weight = selected["weights"]
+    (
+        model_weight,
+        rule_weight,
+        anomaly_weight,
+        network_weight,
+    ) = selected["weights"]
     high_threshold = selected["high_threshold"]
     validation_scores = selected["risk_scores"]
     legitimate_scores = validation_scores[validation_labels == 0]
@@ -450,7 +487,12 @@ def main() -> None:
     )
 
     print(f"\nScoring {len(test):,} untouched test transactions")
-    test_signals = score_signals(test, fraud_model, anomaly_detector)
+    test_signals = score_signals(
+        test,
+        fraud_model,
+        anomaly_detector,
+        network_analyzer,
+    )
     test_scores, _ = combined_scores(
         *test_signals,
         selected["weights"],
@@ -468,6 +510,7 @@ def main() -> None:
             "model_weight": model_weight,
             "rule_weight": rule_weight,
             "anomaly_weight": anomaly_weight,
+            "network_weight": network_weight,
             "low_rule_score": 20.0,
             "medium_rule_score": 60.0,
             "high_rule_score": 100.0,

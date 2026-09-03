@@ -1,4 +1,5 @@
 import csv
+from datetime import datetime, timezone
 from pathlib import Path
 
 import pytest
@@ -16,6 +17,10 @@ def make_transaction(
     origin_balance: float = 1_000.0,
 ) -> TransactionInput:
     return TransactionInput(
+        transaction_id="test_transaction",
+        sender_id="sender",
+        receiver_id="receiver",
+        timestamp=datetime(2026, 1, 1, tzinfo=timezone.utc),
         step=1,
         type=transaction_type,
         amount=amount,
@@ -38,6 +43,10 @@ def load_fixture() -> list[tuple[TransactionInput, bool]]:
             transactions.append(
                 (
                     TransactionInput(
+                        transaction_id=row["transaction_id"],
+                        sender_id=row["sender_id"],
+                        receiver_id=row["receiver_id"],
+                        timestamp=row["timestamp"],
                         step=int(row["step"]),
                         type=row["type"],
                         amount=float(row["amount"]),

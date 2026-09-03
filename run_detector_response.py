@@ -29,6 +29,10 @@ def parse_args() -> argparse.Namespace:
 
 def transaction_from_row(row: pd.Series) -> TransactionInput:
     return TransactionInput(
+        transaction_id=str(row["transaction_id"]),
+        sender_id=str(row["sender_id"]),
+        receiver_id=str(row["receiver_id"]),
+        timestamp=str(row["timestamp"]),
         step=int(row["step"]),
         type=cast(TransactionType, row["type"]),
         amount=float(row["amount"]),
@@ -66,7 +70,9 @@ def main() -> None:
             )
         selected = examples.iloc[[args.example - 1]]
     else:
-        selected = examples
+        selected = examples.sort_values(
+            ["timestamp", "transaction_id"]
+        )
 
     detector = FraudDetector()
 

@@ -2,7 +2,7 @@
 
 from typing import Literal
 
-from pydantic import BaseModel, Field, model_validator
+from pydantic import AwareDatetime, BaseModel, Field, model_validator
 
 TransactionType = Literal[
     "CASH_IN",
@@ -15,6 +15,10 @@ TransactionType = Literal[
 
 class TransactionInput(BaseModel):
     # Current transaction
+    transaction_id: str = Field(..., min_length=1)
+    sender_id: str = Field(..., min_length=1)
+    receiver_id: str = Field(..., min_length=1)
+    timestamp: AwareDatetime
     step: int = Field(..., ge=0)
     type: TransactionType
     amount: float = Field(..., ge=0)
@@ -54,10 +58,50 @@ class AnomalyPrediction(BaseModel):
     model_version: str
 
 
+class NetworkEvidence(BaseModel):
+    code: str
+    score: float = Field(..., ge=0.0, le=100.0)
+    value: float
+    description: str
+
+
+class NetworkPrediction(BaseModel):
+    network_score: float = Field(..., ge=0.0, le=100.0)
+    model_version: str
+    indicators: dict[str, float] = Field(default_factory=dict)
+    evidence: list[NetworkEvidence] = Field(default_factory=list)
+
+
+class NetworkConfig(BaseModel):
+    lookback_hours: float = Field(24.0, gt=0.0)
+    max_edges: int = Field(100_000, gt=0)
+    fan_out_threshold: int = Field(5, gt=0)
+    fan_in_threshold: int = Field(5, gt=0)
+    repeated_pair_threshold: int = Field(3, gt=0)
+    pass_through_ratio: float = Field(0.8, gt=0.0, le=1.0)
+    component_size_threshold: int = Field(20, gt=1)
+    sender_volume_threshold: float = Field(1_000_000.0, gt=0.0)
+    fan_out_points: float = Field(15.0, ge=0.0, le=100.0)
+    fan_in_points: float = Field(15.0, ge=0.0, le=100.0)
+    repeated_pair_points: float = Field(10.0, ge=0.0, le=100.0)
+    pass_through_points: float = Field(30.0, ge=0.0, le=100.0)
+    cycle_points: float = Field(30.0, ge=0.0, le=100.0)
+    component_points: float = Field(10.0, ge=0.0, le=100.0)
+    volume_points: float = Field(10.0, ge=0.0, le=100.0)
+    version: str = Field("1.0.0", min_length=1)
+
+
+class DecisionReason(BaseModel):
+    source: Literal["MODEL", "RULE", "ANOMALY", "NETWORK"]
+    code: str
+    description: str
+
+
 class RiskSignalScores(BaseModel):
     model_score: float = Field(..., ge=0.0, le=100.0)
     rule_score: float = Field(..., ge=0.0, le=100.0)
     anomaly_score: float = Field(..., ge=0.0, le=100.0)
+    network_score: float = Field(..., ge=0.0, le=100.0)
     weighted_score: float = Field(..., ge=0.0, le=100.0)
     rule_floor_applied: bool
 
@@ -74,6 +118,7 @@ class RiskConfig(BaseModel):
     model_weight: float = Field(..., ge=0.0, le=1.0)
     rule_weight: float = Field(..., ge=0.0, le=1.0)
     anomaly_weight: float = Field(..., ge=0.0, le=1.0)
+    network_weight: float = Field(..., ge=0.0, le=1.0)
     low_rule_score: float = Field(20.0, ge=0.0, le=100.0)
     medium_rule_score: float = Field(60.0, ge=0.0, le=100.0)
     high_rule_score: float = Field(100.0, ge=0.0, le=100.0)
@@ -90,6 +135,7 @@ class RiskConfig(BaseModel):
             self.model_weight
             + self.rule_weight
             + self.anomaly_weight
+            + self.network_weight
         )
         if abs(weight_sum - 1.0) > 1e-9:
             raise ValueError("Risk signal weights must sum to 1.")
@@ -125,7 +171,9 @@ class FraudPrediction(BaseModel):
     risk_engine_version: str
     model_version: str
     anomaly: AnomalyPrediction
+    network: NetworkPrediction
     reasons: list[FraudReason] = Field(default_factory=list)
+    decision_reasons: list[DecisionReason] = Field(default_factory=list)
     triggered_rules: list[RuleResult] = Field(default_factory=list)
 
 

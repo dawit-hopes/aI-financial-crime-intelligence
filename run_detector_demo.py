@@ -18,6 +18,10 @@ FIXTURE_PATH = Path("src/tests/fixtures/fraud_examples.csv")
 def transaction_from_row(row: pd.Series) -> TransactionInput:
     """Convert one CSV row to the validated detector input schema."""
     return TransactionInput(
+        transaction_id=str(row["transaction_id"]),
+        sender_id=str(row["sender_id"]),
+        receiver_id=str(row["receiver_id"]),
+        timestamp=str(row["timestamp"]),
         step=int(row["step"]),
         # CSV values are untyped strings; Pydantic still validates this input
         # at runtime, while the cast tells the type checker the expected shape.
@@ -35,7 +39,9 @@ def transaction_from_row(row: pd.Series) -> TransactionInput:
 
 
 def main() -> None:
-    examples = pd.read_csv(FIXTURE_PATH)
+    examples = pd.read_csv(FIXTURE_PATH).sort_values(
+        ["timestamp", "transaction_id"]
+    )
     detector = FraudDetector()
     correct_predictions = 0
 
@@ -58,7 +64,8 @@ def main() -> None:
         print(
             f"  Signals: model={prediction.signal_scores.model_score:.1f}, "
             f"rules={prediction.signal_scores.rule_score:.1f}, "
-            f"anomaly={prediction.signal_scores.anomaly_score:.1f}"
+            f"anomaly={prediction.signal_scores.anomaly_score:.1f}, "
+            f"network={prediction.signal_scores.network_score:.1f}"
         )
         print(
             f"  Anomaly: {prediction.anomaly.anomaly_score:.2%} | "
@@ -69,6 +76,14 @@ def main() -> None:
                 rule.rule for rule in prediction.triggered_rules
             )
             print(f"  Triggered rules: {rule_names}")
+        if prediction.network.evidence:
+            network_codes = ", ".join(
+                item.code for item in prediction.network.evidence
+            )
+            print(f"  Network evidence: {network_codes}")
+        print("  Decision reasons:")
+        for reason in prediction.decision_reasons:
+            print(f"    - [{reason.source}] {reason.description}")
         print("  Main reasons:")
         for reason in prediction.reasons:
             print(f"    - [{reason.direction}] {reason.description}")

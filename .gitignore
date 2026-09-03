@@ -9,3 +9,27 @@ wheels/
 # Virtual environments
 .venv
 *.pptx
+
+# Secrets
+.env
+.env.*
+!.env.example
+
+# Test/tool caches
+.pytest_cache/
+.ruff_cache/
+.mypy_cache/
+.coverage
+htmlcov/
+
+# Notebooks
+.ipynb_checkpoints/
+
+# Local datasets
+data/
+PS_20174392719_1491204439457_log.csv
+
+# OS/editor files
+.DS_Store
+.vscode/
+.idea/

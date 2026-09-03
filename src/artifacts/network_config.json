@@ -1,0 +1,45 @@
+{
+  "config": {
+    "lookback_hours": 24.0,
+    "max_edges": 100000,
+    "fan_out_threshold": 3,
+    "fan_in_threshold": 3,
+    "repeated_pair_threshold": 3,
+    "pass_through_ratio": 0.8,
+    "component_size_threshold": 20,
+    "sender_volume_threshold": 2500959.9066999755,
+    "fan_out_points": 15.0,
+    "fan_in_points": 15.0,
+    "repeated_pair_points": 10.0,
+    "pass_through_points": 30.0,
+    "cycle_points": 30.0,
+    "component_points": 10.0,
+    "volume_points": 10.0,
+    "version": "1.0.0"
+  },
+  "calibration": {
+    "dataset": "ealaxi/paysim1",
+    "training_steps": [
+      497,
+      520
+    ],
+    "validation_steps": [
+      521,
+      631
+    ],
+    "test_min_step": 632,
+    "labels_used_for_thresholds": false,
+    "validation_metrics": {
+      "pr_auc": 0.027771655627667025,
+      "mean_score": 0.05825359374284744,
+      "p99_score": 0.0,
+      "positive_score_rate": 0.005310049333758835
+    },
+    "test_metrics": {
+      "pr_auc": 0.08278721253027212,
+      "mean_score": 0.06712047010660172,
+      "p99_score": 0.0,
+      "positive_score_rate": 0.0065052645697806985
+    }
+  }
+}
