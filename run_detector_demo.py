@@ -51,9 +51,24 @@ def main() -> None:
         print(
             f"  Expected: {'FRAUD' if expected else 'LEGITIMATE'} | "
             f"Predicted: {'FRAUD' if prediction.is_fraud else 'LEGITIMATE'} "
-            f"({prediction.fraud_probability:.2%}, {prediction.risk_level}) | "
+            f"(risk {prediction.risk_score:.1f}/100, "
+            f"{prediction.risk_level}) | "
             f"{'CORRECT' if is_correct else 'INCORRECT'}"
         )
+        print(
+            f"  Signals: model={prediction.signal_scores.model_score:.1f}, "
+            f"rules={prediction.signal_scores.rule_score:.1f}, "
+            f"anomaly={prediction.signal_scores.anomaly_score:.1f}"
+        )
+        print(
+            f"  Anomaly: {prediction.anomaly.anomaly_score:.2%} | "
+            f"{'FLAGGED' if prediction.anomaly.is_anomaly else 'NOT FLAGGED'}"
+        )
+        if prediction.triggered_rules:
+            rule_names = ", ".join(
+                rule.rule for rule in prediction.triggered_rules
+            )
+            print(f"  Triggered rules: {rule_names}")
         print("  Main reasons:")
         for reason in prediction.reasons:
             print(f"    - [{reason.direction}] {reason.description}")

@@ -1,7 +1,10 @@
+from typing import cast
+
 import pandas as pd
 
+from src.anomaly_detector import AnomalyDetector
 from src.fraud_detector import FraudDetector
-from src.schemas import TransactionInput
+from src.schemas import AnomalyPrediction, TransactionInput
 
 FIXTURE_PATH = "src/tests/fixtures/fraud_examples.csv"
 
@@ -55,9 +58,24 @@ def test_detector_can_predict_all_examples():
         result = detector.predict(transaction)
 
         assert 0.0 <= result.fraud_probability <= 1.0
+        assert 0.0 <= result.risk_score <= 100.0
         assert result.risk_level in {"LOW", "MEDIUM", "HIGH"}
         assert isinstance(result.is_fraud, bool)
+        assert result.risk_engine_version == "1.0.0"
         assert all(rule.triggered for rule in result.triggered_rules)
+        assert 0.0 <= result.anomaly.anomaly_score <= 1.0
+        assert result.anomaly.is_anomaly == (
+            result.anomaly.anomaly_score >= result.anomaly.threshold
+        )
+        expected_risk = detector.risk_engine.assess(
+            result.fraud_probability,
+            result.triggered_rules,
+            result.anomaly,
+        )
+        assert result.is_fraud == expected_risk.is_fraud
+        assert result.risk_level == expected_risk.risk_level
+        assert result.risk_score == expected_risk.risk_score
+        assert result.signal_scores == expected_risk.signal_scores
 
 
 def test_real_fraud_examples_are_detected():
@@ -108,6 +126,8 @@ def test_high_risk_rule_overrides_low_model_probability():
     assert result.fraud_probability < detector.threshold
     assert result.is_fraud is True
     assert result.risk_level == "HIGH"
+    assert result.risk_score >= detector.risk_engine.config.high_threshold
+    assert result.signal_scores.rule_floor_applied is True
     assert [rule.rule for rule in result.triggered_rules] == [
         "ORIGIN_ACCOUNT_DRAIN"
     ]
@@ -126,4 +146,42 @@ def test_prediction_keeps_model_and_rule_outputs_separate():
     assert result.is_fraud is False
     assert result.risk_level == "LOW"
     assert result.triggered_rules == []
+    assert result.anomaly.is_anomaly is False
     assert result.reasons
+
+
+class AlwaysAnomalousDetector:
+    def predict(
+        self,
+        transaction: TransactionInput,
+    ) -> AnomalyPrediction:
+        return AnomalyPrediction(
+            is_anomaly=True,
+            anomaly_score=1.0,
+            raw_anomaly_score=1.0,
+            threshold=0.99,
+            model_version="test",
+        )
+
+
+def test_anomaly_alone_raises_risk_without_declaring_fraud():
+    df = load_fixture()
+    row = df[
+        (df["step"] == 691)
+        & (df["type"] == "PAYMENT")
+        & (df["isFraud"] == 0)
+    ].iloc[0]
+    detector = FraudDetector(
+        anomaly_detector=cast(
+            AnomalyDetector,
+            AlwaysAnomalousDetector(),
+        )
+    )
+
+    result = detector.predict(make_transaction(row))
+
+    assert result.fraud_probability < detector.threshold
+    assert result.triggered_rules == []
+    assert result.anomaly.is_anomaly is True
+    assert result.is_fraud is False
+    assert result.risk_level == "MEDIUM"
