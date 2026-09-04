@@ -43,6 +43,19 @@ uv run python -m scripts.run_detector_response --example 1
 uv run pytest
 ```
 
+## Docker (inference smoke)
+
+The backend repo owns FastAPI. This image only loads artifacts and scores one
+transaction, so a broken model or missing dependency fails the build/run.
+
+```bash
+docker build -t fraud-detection-ml .
+docker run --rm fraud-detection-ml
+```
+
+The image installs `xgboost-cpu` (no CUDA) and does not install `shap`.
+Explanations use XGBoost `pred_contribs` (TreeSHAP) in `src/explainability.py`.
+
 ## Signals
 
 The detector combines four signals into a 0–100 risk score:
